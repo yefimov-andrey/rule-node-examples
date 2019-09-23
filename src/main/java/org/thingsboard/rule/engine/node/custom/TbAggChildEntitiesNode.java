@@ -19,14 +19,13 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
+import org.thingsboard.common.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.RuleNode;
 import org.thingsboard.rule.engine.api.TbContext;
 import org.thingsboard.rule.engine.api.TbNode;
 import org.thingsboard.rule.engine.api.TbNodeConfiguration;
 import org.thingsboard.rule.engine.api.TbNodeException;
-import org.thingsboard.rule.engine.api.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
-import org.thingsboard.rule.engine.data.RelationsQuery;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.asset.Asset;
 import org.thingsboard.server.common.data.id.AssetId;
@@ -81,7 +80,7 @@ public class TbAggChildEntitiesNode implements TbNode {
     private long delay;
     private long lastScheduledTs;
     private int relationsMaxLevel;
-    private RelationsQuery relationsQuery = new RelationsQuery();
+    private EntityRelationsQuery relationsQuery = new EntityRelationsQuery();
 
     private List<Asset> trains = new ArrayList<>();
     private List<String> childEntitiesTypes;
@@ -93,8 +92,8 @@ public class TbAggChildEntitiesNode implements TbNode {
         childEntitiesTypes = config.getChildEntitiesTypes();
         delay = config.getPeriodTimeUnit().toMillis(config.getPeriodValue());
         relationsMaxLevel = config.getRelationsMaxLevel();
-        relationsQuery.setDirection(EntitySearchDirection.FROM);
-        relationsQuery.setMaxLevel(relationsMaxLevel);
+        relationsQuery.getParameters().setDirection(EntitySearchDirection.FROM);
+        relationsQuery.getParameters().setMaxLevel(relationsMaxLevel);
         executorService = Executors.newScheduledThreadPool(5);
         executorService.scheduleAtFixedRate(() -> {
             trains = ctx.getAssetService().findAssetsByTenantIdAndType(ctx.getTenantId(), trainType, new TextPageLink(1000)).getData();
@@ -151,10 +150,10 @@ public class TbAggChildEntitiesNode implements TbNode {
         return msgFutures;
     }
 
-    private EntityRelationsQuery buildQuery(EntityId originator, RelationsQuery relationsQuery) {
+    private EntityRelationsQuery buildQuery(EntityId originator, EntityRelationsQuery relationsQuery) {
         EntityRelationsQuery query = new EntityRelationsQuery();
         RelationsSearchParameters parameters = new RelationsSearchParameters(originator,
-                relationsQuery.getDirection(), relationsQuery.getMaxLevel());
+                relationsQuery.getParameters().getDirection(), relationsQuery.getParameters().getMaxLevel(), false);
         query.setParameters(parameters);
         query.setFilters(relationsQuery.getFilters());
         return query;
