@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 @Data
 public class TbAggChildEntitiesNodeConfiguration implements NodeConfiguration<TbAggChildEntitiesNodeConfiguration> {
 
-
     private TimeUnit periodTimeUnit;
     private int periodValue;
 

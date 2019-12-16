@@ -66,12 +66,10 @@ import static org.thingsboard.rule.engine.api.TbRelationTypes.SUCCESS;
         //configDirective = "tbAnalyticsNodeAggregateLatestConfig",
         icon = "functions"
 )
-
 public class TbAggChildEntitiesNode implements TbNode {
 
-
     private static final String TB_AGE_CHILD_DATA_NODE_MSG = "CHILD_AGG";
-    private static final Gson gson = new Gson();
+    private static final Gson GSON = new Gson();
 
     private TbAggChildEntitiesNodeConfiguration config;
     private ScheduledExecutorService executorService;
@@ -80,7 +78,6 @@ public class TbAggChildEntitiesNode implements TbNode {
     private long delay;
     private long lastScheduledTs;
     private int relationsMaxLevel;
-    private EntityRelationsQuery relationsQuery = new EntityRelationsQuery();
 
     private List<Asset> trains = new ArrayList<>();
     private List<String> childEntitiesTypes;
@@ -92,8 +89,6 @@ public class TbAggChildEntitiesNode implements TbNode {
         childEntitiesTypes = config.getChildEntitiesTypes();
         delay = config.getPeriodTimeUnit().toMillis(config.getPeriodValue());
         relationsMaxLevel = config.getRelationsMaxLevel();
-        relationsQuery.getParameters().setDirection(EntitySearchDirection.FROM);
-        relationsQuery.getParameters().setMaxLevel(relationsMaxLevel);
         executorService = Executors.newScheduledThreadPool(5);
         executorService.scheduleAtFixedRate(() -> {
             trains = ctx.getAssetService().findAssetsByTenantIdAndType(ctx.getTenantId(), trainType, new TextPageLink(1000)).getData();
@@ -114,15 +109,15 @@ public class TbAggChildEntitiesNode implements TbNode {
 
     @Override
     public void destroy() {
-        executorService.shutdown();
+        if (executorService != null) {
+            executorService.shutdown();
+        }
     }
 
     private ListenableFuture<Boolean> tellNextMessages(TbContext ctx, TbMsg msg, List<ListenableFuture<TbMsg>> msgFutures) {
         return Futures.transformAsync(Futures.allAsList(msgFutures), messages -> {
-            if (messages != null && !messages.isEmpty()) {
-                for (TbMsg outMsg : messages) {
-                    ctx.tellNext(outMsg, SUCCESS);
-                }
+            if (messages != null) {
+                messages.forEach(outMsg -> ctx.tellNext(outMsg, SUCCESS));
             }
             return Futures.immediateFuture(true);
         });
@@ -143,19 +138,18 @@ public class TbAggChildEntitiesNode implements TbNode {
     private List<ListenableFuture<TbMsg>> process(TbContext ctx) {
         List<ListenableFuture<TbMsg>> msgFutures = new ArrayList<>();
         for (Asset asset : trains) {
-            ListenableFuture<List<EntityRelation>> entityRelationsFuture = ctx.getRelationService().findByQuery(ctx.getTenantId(), buildQuery(asset.getId(), relationsQuery));
+            ListenableFuture<List<EntityRelation>> entityRelationsFuture = ctx.getRelationService().findByQuery(ctx.getTenantId(), buildQuery(asset.getId()));
             ListenableFuture<List<EntityId>> relatedEntitiesFuture = getRelatedEntities(ctx, entityRelationsFuture);
             msgFutures.add(getListenableFutureMsgEntities(ctx, relatedEntitiesFuture, asset.getId()));
         }
         return msgFutures;
     }
 
-    private EntityRelationsQuery buildQuery(EntityId originator, EntityRelationsQuery relationsQuery) {
+    private EntityRelationsQuery buildQuery(EntityId originator) {
         EntityRelationsQuery query = new EntityRelationsQuery();
         RelationsSearchParameters parameters = new RelationsSearchParameters(originator,
-                relationsQuery.getParameters().getDirection(), relationsQuery.getParameters().getMaxLevel(), false);
+                EntitySearchDirection.FROM, relationsMaxLevel, false);
         query.setParameters(parameters);
-        query.setFilters(relationsQuery.getFilters());
         return query;
     }
 
@@ -168,28 +162,27 @@ public class TbAggChildEntitiesNode implements TbNode {
             if (entityIds != null && !entityIds.isEmpty()) {
                 for (EntityId tempEntityId : entityIds) {
                     String entityType = tempEntityId.getEntityType().toString();
-                    switch (entityType){
+                    switch (entityType) {
                         case "ASSET":
-                            Asset tempAsset = ctx.getAssetService().findAssetById(ctx.getTenantId(),new AssetId(UUID.fromString(tempEntityId.toString())));
+                            Asset tempAsset = ctx.getAssetService().findAssetById(ctx.getTenantId(), new AssetId(UUID.fromString(tempEntityId.toString())));
                             entityType = tempAsset.getType();
                             break;
                         case "DEVICE":
-                            Device tempDevice = ctx.getDeviceService().findDeviceById(ctx.getTenantId(),new DeviceId(UUID.fromString((tempEntityId.toString()))));
+                            Device tempDevice = ctx.getDeviceService().findDeviceById(ctx.getTenantId(), new DeviceId(UUID.fromString((tempEntityId.toString()))));
                             entityType = tempDevice.getType();
                             break;
-                         default:
-                             log.warn("Entity is not a device or asset!");
-                             break;
+                        default:
+                            log.warn("Entity is not a device or asset!");
+                            break;
 
                     }
                     childEntitiesCounts.computeIfPresent(entityType, (key, val) -> new AtomicInteger(val.incrementAndGet()));
                 }
             }
-            TbMsg newMsg = ctx.newMsg(String.valueOf(SessionMsgType.POST_TELEMETRY_REQUEST), trainId, new TbMsgMetaData(), gson.toJson(childEntitiesCounts));
+            TbMsg newMsg = ctx.newMsg(String.valueOf(SessionMsgType.POST_TELEMETRY_REQUEST), trainId, new TbMsgMetaData(), GSON.toJson(childEntitiesCounts));
             return Futures.immediateFuture(newMsg);
         });
     }
-
 
     private ListenableFuture<List<EntityId>> getRelatedEntities(TbContext ctx, ListenableFuture<List<EntityRelation>> relatedEntities) {
         return Futures.transformAsync(relatedEntities, entityRelations -> {
@@ -205,7 +198,5 @@ public class TbAggChildEntitiesNode implements TbNode {
         }, ctx.getDbCallbackExecutor());
 
     }
-
-
 
 }
