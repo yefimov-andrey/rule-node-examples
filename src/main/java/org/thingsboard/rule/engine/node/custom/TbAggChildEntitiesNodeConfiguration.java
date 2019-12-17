@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 @Data
 public class TbAggChildEntitiesNodeConfiguration implements NodeConfiguration<TbAggChildEntitiesNodeConfiguration> {
 
-
     private TimeUnit periodTimeUnit;
     private int periodValue;
 
@@ -38,6 +37,9 @@ public class TbAggChildEntitiesNodeConfiguration implements NodeConfiguration<Tb
     private List<String> childEntitiesTypes;
     private String relationType;
 
+    private String attributeKey;
+    private List<String> attributeValues;
+
     @Override
     public TbAggChildEntitiesNodeConfiguration defaultConfiguration() {
         TbAggChildEntitiesNodeConfiguration configuration = new TbAggChildEntitiesNodeConfiguration();
@@ -49,6 +51,8 @@ public class TbAggChildEntitiesNodeConfiguration implements NodeConfiguration<Tb
         configuration.setRelationType("Contains");
         configuration.setParentEntityType("");
         configuration.setChildEntitiesTypes(Collections.emptyList());
+        configuration.setAttributeKey("");
+        configuration.setAttributeValues(Collections.emptyList());
         return configuration;
     }
 }
