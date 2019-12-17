@@ -18,6 +18,7 @@ package org.thingsboard.rule.engine.node.custom;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import org.thingsboard.common.util.DonAsynchron;
 import org.thingsboard.rule.engine.api.RuleNode;
@@ -26,6 +27,7 @@ import org.thingsboard.rule.engine.api.TbNode;
 import org.thingsboard.rule.engine.api.TbNodeConfiguration;
 import org.thingsboard.rule.engine.api.TbNodeException;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
+import org.thingsboard.server.common.data.DataConstants;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.asset.Asset;
 import org.thingsboard.server.common.data.id.AssetId;
@@ -43,6 +45,7 @@ import org.thingsboard.server.common.msg.session.SessionMsgType;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -82,6 +85,9 @@ public class TbAggChildEntitiesNode implements TbNode {
     private List<Asset> trains = new ArrayList<>();
     private List<String> childEntitiesTypes;
 
+    private String attributeKey;
+    private List<String> attributeValues;
+
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         this.config = TbNodeUtils.convert(configuration, TbAggChildEntitiesNodeConfiguration.class);
@@ -94,6 +100,8 @@ public class TbAggChildEntitiesNode implements TbNode {
             trains = ctx.getAssetService().findAssetsByTenantIdAndType(ctx.getTenantId(), trainType, new TextPageLink(1000)).getData();
         }, 0, config.getFetchParentEntitiesPeriod(), config.getFetchParentEntitiesPeriodTimeUnit());
         scheduleTickMsg(ctx);
+        this.attributeKey = config.getAttributeKey();
+        this.attributeValues = config.getAttributeValues();
     }
 
     @Override
@@ -156,8 +164,12 @@ public class TbAggChildEntitiesNode implements TbNode {
     private ListenableFuture<TbMsg> getListenableFutureMsgEntities(TbContext ctx, ListenableFuture<List<EntityId>> relatedEntitiesFuture, EntityId trainId) {
         return Futures.transformAsync(relatedEntitiesFuture, entityIds -> {
             Map<String, AtomicInteger> childEntitiesCounts = new ConcurrentHashMap<>();
+            Map<String, Map<String, AtomicInteger>> childAttributeCounts = new ConcurrentHashMap<>();
             for (String type : childEntitiesTypes) {
                 childEntitiesCounts.put(type, new AtomicInteger(0));
+                Map<String, AtomicInteger> attrCount = new HashMap<>();
+                attributeValues.forEach(attrValue -> attrCount.put(attributeKey + "_" + attrValue, new AtomicInteger(0)));
+                childAttributeCounts.put(type, attrCount);
             }
             if (entityIds != null && !entityIds.isEmpty()) {
                 for (EntityId tempEntityId : entityIds) {
@@ -174,12 +186,33 @@ public class TbAggChildEntitiesNode implements TbNode {
                         default:
                             log.warn("Entity is not a device or asset!");
                             break;
-
                     }
-                    childEntitiesCounts.computeIfPresent(entityType, (key, val) -> new AtomicInteger(val.incrementAndGet()));
+
+                    String finalEntityType = entityType;
+                    DonAsynchron.withCallback(
+                            ctx.getAttributesService().find(ctx.getTenantId(), tempEntityId, DataConstants.SERVER_SCOPE, attributeKey),
+                            attributeKvEntry -> attributeKvEntry.ifPresent(entry -> childAttributeCounts
+                                    .computeIfPresent(finalEntityType, (k, v) -> {
+                                        v.computeIfPresent(attributeKey + "_" + entry.getValueAsString(), this::incrementAndGet);
+                                        return v;
+                                    }))
+                            , t -> {
+                            });
+
+                    childEntitiesCounts.computeIfPresent(entityType, this::incrementAndGet);
                 }
             }
-            TbMsg newMsg = ctx.newMsg(String.valueOf(SessionMsgType.POST_TELEMETRY_REQUEST), trainId, new TbMsgMetaData(), GSON.toJson(childEntitiesCounts));
+
+            JsonObject result = new JsonObject();
+
+            childEntitiesCounts.forEach((type, entityCount) -> {
+                result.addProperty(type, entityCount);
+                childAttributeCounts.get(type).forEach((attr, attrCount) -> {
+                    result.addProperty(type + "_" + attr, attrCount);
+                });
+            });
+
+            TbMsg newMsg = ctx.newMsg(String.valueOf(SessionMsgType.POST_TELEMETRY_REQUEST), trainId, new TbMsgMetaData(), result.toString());
             return Futures.immediateFuture(newMsg);
         });
     }
@@ -198,5 +231,11 @@ public class TbAggChildEntitiesNode implements TbNode {
         }, ctx.getDbCallbackExecutor());
 
     }
+
+    private AtomicInteger incrementAndGet(String key, AtomicInteger count) {
+        count.incrementAndGet();
+        return count;
+    }
+
 
 }
