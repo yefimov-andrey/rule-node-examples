@@ -62,7 +62,7 @@ import static org.thingsboard.rule.engine.api.TbRelationTypes.SUCCESS;
         name = "child entities count",
         configClazz = TbAggChildEntitiesNodeConfiguration.class,
         nodeDescription = "Puts the number of related entities into timeseries",
-        nodeDetails = "Performs aggregation of child entities and devices with specified types with configurable period. " +
+        nodeDetails = "Performs aggregation of child entities and devices with specified types and values of specified attribute with configurable period. " +
                 "Generates 'POST_TELEMETRY_REQUEST' messages with aggregated values for each parent entity.",
         inEnabled = false,
         //uiResources = {"static/rulenode/rulenode-core-config.js", "static/rulenode/rulenode-core-config.css"},
